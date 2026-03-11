@@ -19,10 +19,10 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
 use app::{Action, App};
-use session::load_sessions;
+use session::{load_sessions, CliTool};
 
 #[derive(Parser)]
-#[command(name = "claude-sessions", about = "Browse and resume Claude Code sessions")]
+#[command(name = "claude-sessions", about = "Browse and resume Claude Code and Codex CLI sessions")]
 struct Cli {
     /// Project path (defaults to current directory)
     #[arg(short, long)]
@@ -60,13 +60,13 @@ fn main() -> Result<()> {
     let mut app = App::new(sessions, project_path_str);
 
     // Event loop
-    let resume_id = loop {
+    let resume_action = loop {
         terminal.draw(|frame| ui::render(frame, &mut app))?;
 
         if let Event::Key(key) = event::read()? {
             match app.handle_key(key) {
                 Action::Quit => break None,
-                Action::Resume(id) => break Some(id),
+                Action::Resume(id, tool) => break Some((id, tool)),
                 Action::None => {}
             }
         }
@@ -76,12 +76,23 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     io::stdout().execute(LeaveAlternateScreen)?;
 
-    // Resume session if requested
-    if let Some(session_id) = resume_id {
-        // Use exec to replace the current process with claude
-        let err = Command::new("claude").arg("--resume").arg(&session_id).exec();
-        // exec() only returns on error
-        eprintln!("Failed to launch claude: {}", err);
+    // Resume session if requested — uses Unix exec() to replace current process
+    if let Some((session_id, tool)) = resume_action {
+        let err = match tool {
+            CliTool::Claude => Command::new("claude")
+                .arg("--resume")
+                .arg(&session_id)
+                .exec(),
+            CliTool::Codex => Command::new("codex")
+                .arg("resume")
+                .arg(&session_id)
+                .exec(),
+        };
+        let tool_name = match tool {
+            CliTool::Claude => "claude",
+            CliTool::Codex => "codex",
+        };
+        eprintln!("Failed to launch {}: {}", tool_name, err);
         std::process::exit(1);
     }
 

@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
 use crate::fuzzy::fuzzy_filter;
-use crate::session::Session;
+use crate::session::{CliTool, Session};
 
 pub enum Mode {
     Normal,
@@ -12,7 +12,7 @@ pub enum Mode {
 pub enum Action {
     None,
     Quit,
-    Resume(String),
+    Resume(String, CliTool),
 }
 
 pub struct App {
@@ -171,7 +171,7 @@ impl App {
         if let Some(selected) = self.list_state.selected() {
             if let Some(&session_idx) = self.filtered_indices.get(selected) {
                 let session = &self.sessions[session_idx];
-                return Action::Resume(session.id.clone());
+                return Action::Resume(session.id.clone(), session.tool.clone());
             }
         }
         Action::None

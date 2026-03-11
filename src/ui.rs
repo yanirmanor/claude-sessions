@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, Mode};
+use crate::session::CliTool;
 
 const MUTED_BLUE_GRAY: Color = Color::Rgb(140, 140, 160);
 const DIM_GRAY: Color = Color::Rgb(90, 90, 100);
@@ -36,7 +37,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
-            " Claude Sessions",
+            " AI Sessions",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -79,11 +80,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 && session.timestamp.is_none()
                 && session.git_branch.is_none();
 
-            // Line 1: metadata (date, branch, id, message count)
+            // Tool badge
+            let (tool_label, tool_color) = match session.tool {
+                CliTool::Claude => ("[Claude]", Color::Magenta),
+                CliTool::Codex => ("[Codex]", Color::Green),
+            };
+
+            // Line 1: metadata (tool badge, date, branch, id, message count)
             let line1 = if is_empty {
                 Line::from(vec![
                     Span::styled(
-                        format!("  {}  ", date_str),
+                        format!("  {} ", tool_label),
+                        Style::default().fg(tool_color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{}  ", date_str),
                         Style::default()
                             .fg(DIM_GRAY)
                             .add_modifier(Modifier::ITALIC),
@@ -106,7 +117,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             } else {
                 Line::from(vec![
                     Span::styled(
-                        format!("  {}  ", date_str),
+                        format!("  {} ", tool_label),
+                        Style::default().fg(tool_color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{}  ", date_str),
                         Style::default().fg(MUTED_BLUE_GRAY),
                     ),
                     Span::styled(
