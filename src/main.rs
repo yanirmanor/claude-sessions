@@ -22,7 +22,7 @@ use app::{Action, App};
 use session::{load_sessions, CliTool};
 
 #[derive(Parser)]
-#[command(name = "claude-sessions", about = "Browse and resume Claude Code and Codex CLI sessions")]
+#[command(name = "ai-sessions", about = "Browse and resume Claude Code and Codex CLI sessions")]
 struct Cli {
     /// Project path (defaults to current directory)
     #[arg(short, long)]

@@ -1,5 +1,5 @@
 PREFIX ?= /usr/local/bin
-BIN = claude-sessions
+BIN = ai-sessions
 
 .PHONY: build install uninstall clean
 

@@ -1,4 +1,4 @@
-# claude-sessions
+# ai-sessions
 
 A TUI tool to browse and resume your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex CLI](https://github.com/openai/codex) sessions from one interface.
 
@@ -18,8 +18,8 @@ A TUI tool to browse and resume your [Claude Code](https://docs.anthropic.com/en
 ### From source (requires [Rust](https://rustup.rs/))
 
 ```bash
-git clone https://github.com/yanirmanor/claude-sessions.git
-cd claude-sessions
+git clone https://github.com/yanirmanor/ai-sessions.git
+cd ai-sessions
 cargo install --path .
 ```
 
@@ -27,17 +27,17 @@ cargo install --path .
 
 ```bash
 cargo build --release
-# binary is at target/release/claude-sessions
+# binary is at target/release/ai-sessions
 ```
 
 ## Usage
 
 ```bash
 # Browse sessions for the current directory
-claude-sessions
+ai-sessions
 
 # Browse sessions for a specific project
-claude-sessions --path /path/to/project
+ai-sessions --path /path/to/project
 ```
 
 ## Keybindings
