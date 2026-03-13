@@ -15,11 +15,24 @@ A TUI tool to browse and resume your [Claude Code](https://docs.anthropic.com/en
 
 ## Install
 
+### Homebrew (macOS)
+
+```bash
+brew tap yanirmanor/homebrew-tap
+brew install ai-sessions
+```
+
+### Without cloning (requires [Rust](https://rustup.rs/))
+
+```bash
+cargo install --git https://github.com/yanirmanor/claude-sessions.git
+```
+
 ### From source (requires [Rust](https://rustup.rs/))
 
 ```bash
-git clone https://github.com/yanirmanor/ai-sessions.git
-cd ai-sessions
+git clone https://github.com/yanirmanor/claude-sessions.git
+cd claude-sessions
 cargo install --path .
 ```
 
