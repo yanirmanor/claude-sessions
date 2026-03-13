@@ -85,13 +85,126 @@ impl MessageContent {
 
 // --- Codex JSONL types ---
 
-#[derive(Deserialize, Debug)]
-struct CodexJsonlEntry {
-    #[serde(rename = "type")]
-    entry_type: Option<String>,
-    role: Option<String>,
+#[derive(Debug, Clone)]
+struct CodexMessage {
+    role: String,
     content: Option<serde_json::Value>,
-    cwd: Option<String>,
+}
+
+fn json_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(|v| v.as_str())
+}
+
+fn extract_text_from_codex_content(content: &serde_json::Value) -> Option<String> {
+    match content {
+        serde_json::Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Array(arr) => arr.iter().find_map(|item| {
+            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+            if let Some(nested) = item.get("content") {
+                return extract_text_from_codex_content(nested);
+            }
+            None
+        }),
+        serde_json::Value::Object(obj) => {
+            if let Some(text) = obj.get("text").and_then(|t| t.as_str()) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+            if let Some(message) = obj.get("message").and_then(|m| m.as_str()) {
+                let trimmed = message.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+            if let Some(nested) = obj.get("content") {
+                return extract_text_from_codex_content(nested);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn codex_message_from_entry(entry: &serde_json::Value) -> Option<CodexMessage> {
+    let entry_type = json_str(entry, "type");
+
+    // New Codex format: {"type":"response_item","payload":{"type":"message","role":"user|assistant", ...}}
+    if entry_type == Some("response_item") {
+        let payload = entry.get("payload")?;
+        if json_str(payload, "type") == Some("message") {
+            let role = json_str(payload, "role")?.to_string();
+            return Some(CodexMessage {
+                role,
+                content: payload.get("content").cloned(),
+            });
+        }
+
+        // Alternate new format: {"type":"response_item","payload":{"type":"message","message":{"role":...,"content":...}}}
+        if json_str(payload, "type") == Some("message") {
+            if let Some(message_obj) = payload.get("message") {
+                if let Some(role) = json_str(message_obj, "role") {
+                    return Some(CodexMessage {
+                        role: role.to_string(),
+                        content: message_obj.get("content").cloned(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Older/alternate format: {"role":"user|assistant", "content": ...}
+    if let Some(role) = json_str(entry, "role") {
+        return Some(CodexMessage {
+            role: role.to_string(),
+            content: entry.get("content").cloned(),
+        });
+    }
+
+    None
+}
+
+fn codex_cwd_from_entry(entry: &serde_json::Value) -> Option<String> {
+    // New format keeps cwd in session_meta payload
+    if json_str(entry, "type") == Some("session_meta") {
+        if let Some(payload) = entry.get("payload") {
+            if let Some(cwd) = json_str(payload, "cwd") {
+                return Some(cwd.to_string());
+            }
+        }
+    }
+
+    // Older format keeps cwd at top-level
+    json_str(entry, "cwd").map(|s| s.to_string())
+}
+
+fn codex_user_message_from_event(entry: &serde_json::Value) -> Option<String> {
+    if json_str(entry, "type") != Some("event_msg") {
+        return None;
+    }
+
+    let payload = entry.get("payload")?;
+    if json_str(payload, "type") != Some("user_message") {
+        return None;
+    }
+
+    json_str(payload, "message")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 fn encode_path(path: &Path) -> String {
@@ -198,7 +311,9 @@ fn parse_session_file(path: &Path) -> Result<Session> {
             if first_user_message.is_empty() && msg.role.as_deref() == Some("user") {
                 if let Some(ref content) = msg.content {
                     if let Some(text) = content.extract_text() {
-                        first_user_message = truncate_str(&text, 120);
+                        if let Some(cleaned) = sanitize_message(&text) {
+                            first_user_message = cleaned;
+                        }
                     }
                 }
             }
@@ -238,10 +353,7 @@ fn load_codex_sessions(project_path: &Path) -> Result<Vec<Session>> {
 
     let mut sessions = Vec::new();
 
-    for entry in WalkDir::new(&codex_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(&codex_dir).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
@@ -270,6 +382,7 @@ fn parse_codex_session_file(path: &Path, project_path: &Path) -> Result<Option<S
     let mut first_user_message = String::new();
     let mut timestamp: Option<String> = None;
     let mut message_count: usize = 0;
+    let mut fallback_user_message_count: usize = 0;
     let mut found_cwd = false;
     let mut matches_project = false;
 
@@ -284,14 +397,14 @@ fn parse_codex_session_file(path: &Path, project_path: &Path) -> Result<Option<S
             continue;
         }
 
-        let entry: CodexJsonlEntry = match serde_json::from_str(&line) {
+        let entry: serde_json::Value = match serde_json::from_str(&line) {
             Ok(e) => e,
             Err(_) => continue,
         };
 
         // Check cwd for project filtering
         if !found_cwd {
-            if let Some(ref cwd) = entry.cwd {
+            if let Some(cwd) = codex_cwd_from_entry(&entry) {
                 found_cwd = true;
                 if cwd.starts_with(project_path_str.as_ref())
                     || project_path_str.starts_with(cwd.as_str())
@@ -302,40 +415,36 @@ fn parse_codex_session_file(path: &Path, project_path: &Path) -> Result<Option<S
         }
 
         // Count messages and extract first user message
-        let role = entry.role.as_deref();
-        if role == Some("user") || role == Some("assistant") {
-            message_count += 1;
+        if let Some(msg) = codex_message_from_entry(&entry) {
+            if msg.role == "user" || msg.role == "assistant" {
+                message_count += 1;
+            }
+
+            if first_user_message.is_empty() && msg.role == "user" {
+                if let Some(content) = msg.content {
+                    if let Some(text) = extract_text_from_codex_content(&content) {
+                        if let Some(cleaned) = sanitize_message(&text) {
+                            first_user_message = cleaned;
+                        }
+                    }
+                }
+            }
         }
 
-        if first_user_message.is_empty() && role == Some("user") {
-            if let Some(ref content) = entry.content {
-                let text = match content {
-                    serde_json::Value::String(s) => Some(s.clone()),
-                    serde_json::Value::Array(arr) => {
-                        arr.iter().find_map(|item| {
-                            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                item.get("text").and_then(|t| t.as_str()).map(String::from)
-                            } else {
-                                None
-                            }
-                        })
-                    }
-                    _ => None,
-                };
-                if let Some(t) = text {
-                    let trimmed = t.trim();
-                    if !trimmed.is_empty() {
-                        first_user_message = truncate_str(trimmed, 120);
-                    }
+        // Fallback for sessions that only emit event_msg user_message entries
+        if let Some(user_message) = codex_user_message_from_event(&entry) {
+            fallback_user_message_count += 1;
+            if first_user_message.is_empty() {
+                if let Some(cleaned) = sanitize_message(&user_message) {
+                    first_user_message = cleaned;
                 }
             }
         }
 
         // Use first available timestamp-like field or derive from file metadata
         if timestamp.is_none() {
-            if let Some(ref ts) = entry.entry_type {
-                // Some Codex entries may have timestamp info; we'll fall back to file mod time
-                let _ = ts;
+            if let Some(ts) = json_str(&entry, "timestamp") {
+                timestamp = Some(ts.to_string());
             }
         }
     }
@@ -347,6 +456,10 @@ fn parse_codex_session_file(path: &Path, project_path: &Path) -> Result<Option<S
 
     if first_user_message.is_empty() {
         first_user_message = "(no message)".to_string();
+    }
+
+    if message_count == 0 && fallback_user_message_count > 0 {
+        message_count = fallback_user_message_count;
     }
 
     // Derive session ID from filename (e.g., "rollout-abc123" from "rollout-abc123.jsonl")
@@ -380,11 +493,68 @@ fn parse_codex_session_file(path: &Path, project_path: &Path) -> Result<Option<S
     }))
 }
 
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
+fn sanitize_message(s: &str) -> Option<String> {
+    let no_control: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+
+    let normalized = no_control.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if normalized.is_empty() {
+        None
     } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{}...", truncated)
+        Some(normalized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_codex_response_item_message() {
+        let entry = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "hello from codex"}
+                ]
+            }
+        });
+
+        let msg = codex_message_from_entry(&entry).expect("expected message");
+        assert_eq!(msg.role, "user");
+        assert_eq!(
+            msg.content
+                .as_ref()
+                .and_then(extract_text_from_codex_content)
+                .as_deref(),
+            Some("hello from codex")
+        );
+    }
+
+    #[test]
+    fn parses_codex_event_user_message_fallback() {
+        let entry = serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": "Session name: improve codex support"
+            }
+        });
+
+        assert_eq!(
+            codex_user_message_from_event(&entry).as_deref(),
+            Some("Session name: improve codex support")
+        );
+    }
+
+    #[test]
+    fn sanitizes_control_sequences_and_whitespace() {
+        let raw = "  hello\x1b[2J\n\tworld  ";
+        assert_eq!(sanitize_message(raw).as_deref(), Some("hello [2J world"));
     }
 }

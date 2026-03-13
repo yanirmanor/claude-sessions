@@ -22,7 +22,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::vertical([
         Constraint::Length(1), // header
         Constraint::Length(1), // search bar
-        Constraint::Min(5),   // list
+        Constraint::Min(5),    // list
         Constraint::Length(1), // footer
     ])
     .split(area);
@@ -95,20 +95,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     ),
                     Span::styled(
                         format!("{}  ", date_str),
-                        Style::default()
-                            .fg(DIM_GRAY)
-                            .add_modifier(Modifier::ITALIC),
+                        Style::default().fg(DIM_GRAY).add_modifier(Modifier::ITALIC),
                     ),
                     Span::styled(
                         format!("{}  ", branch),
-                        Style::default()
-                            .fg(DIM_GRAY)
-                            .add_modifier(Modifier::ITALIC),
+                        Style::default().fg(DIM_GRAY).add_modifier(Modifier::ITALIC),
                     ),
-                    Span::styled(
-                        short_id.to_string(),
-                        Style::default().fg(DIM_GRAY),
-                    ),
+                    Span::styled(short_id.to_string(), Style::default().fg(DIM_GRAY)),
                     Span::styled(
                         format!("  {} msgs", session.message_count),
                         Style::default().fg(DIM_GRAY),
@@ -130,14 +123,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                             .fg(BRANCH_COLOR)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(
-                        short_id.to_string(),
-                        Style::default().fg(DIM_GRAY),
-                    ),
-                    Span::styled(
-                        " · ",
-                        Style::default().fg(SEPARATOR_COLOR),
-                    ),
+                    Span::styled(short_id.to_string(), Style::default().fg(DIM_GRAY)),
+                    Span::styled(" · ", Style::default().fg(SEPARATOR_COLOR)),
                     Span::styled(
                         format!("{} msgs", session.message_count),
                         Style::default().fg(MSG_COUNT_COLOR),
@@ -150,9 +137,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             let is_selected = app.list_state.selected() == Some(list_idx);
             let is_expanded = is_selected && app.expanded;
             let msg_style = if session.first_user_message == "(no message)" || is_empty {
-                Style::default()
-                    .fg(DIM_GRAY)
-                    .add_modifier(Modifier::ITALIC)
+                Style::default().fg(DIM_GRAY).add_modifier(Modifier::ITALIC)
             } else {
                 Style::default().fg(SOFT_WHITE)
             };
@@ -177,8 +162,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     )])]
                 }
             } else {
+                let available_width = area.width as usize;
+                let preview_width = available_width.saturating_sub(indent.len() + 4); // account for indent + highlight symbol + borders
+                let preview_text = if preview_width > 0 {
+                    truncate_for_preview(&session.first_user_message, preview_width)
+                } else {
+                    session.first_user_message.clone()
+                };
                 vec![Line::from(vec![Span::styled(
-                    format!("{}{}", indent, session.first_user_message),
+                    format!("{}{}", indent, preview_text),
                     msg_style,
                 )])]
             };
@@ -211,12 +203,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Footer
     let footer_text = match app.mode {
-        Mode::Normal => {
-            " ↑↓/jk Navigate  →← Expand/Collapse  Enter Resume  / Search  q Quit"
-        }
-        Mode::Search => {
-            " ↑↓ Navigate  Enter Resume  Esc Clear search  Type to filter"
-        }
+        Mode::Normal => " ↑↓/jk Navigate  →← Expand/Collapse  Enter Resume  / Search  q Quit",
+        Mode::Search => " ↑↓ Navigate  Enter Resume  Esc Clear search  Type to filter",
     };
     let footer = Paragraph::new(Span::styled(
         footer_text,
@@ -259,6 +247,20 @@ fn word_wrap(text: &str, max_width: usize) -> Vec<String> {
         lines.push(String::new());
     }
     lines
+}
+
+fn truncate_for_preview(text: &str, max_chars: usize) -> String {
+    let total_chars = text.chars().count();
+    if total_chars <= max_chars {
+        return text.to_string();
+    }
+
+    if max_chars <= 3 {
+        return "...".chars().take(max_chars).collect();
+    }
+
+    let visible: String = text.chars().take(max_chars - 3).collect();
+    format!("{}...", visible)
 }
 
 fn format_timestamp(ts: &Option<String>) -> String {

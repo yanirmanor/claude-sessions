@@ -59,7 +59,9 @@ impl App {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
             KeyCode::Right => {
-                self.expanded = true;
+                if self.has_expandable_selected_message() {
+                    self.expanded = true;
+                }
                 Action::None
             }
             KeyCode::Left => {
@@ -175,5 +177,16 @@ impl App {
             }
         }
         Action::None
+    }
+
+    fn has_expandable_selected_message(&self) -> bool {
+        let Some(selected) = self.list_state.selected() else {
+            return false;
+        };
+        let Some(&session_idx) = self.filtered_indices.get(selected) else {
+            return false;
+        };
+        let msg = self.sessions[session_idx].first_user_message.trim();
+        !msg.is_empty() && msg != "(no message)"
     }
 }
