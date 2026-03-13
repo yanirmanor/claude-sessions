@@ -22,7 +22,10 @@ use app::{Action, App};
 use session::{load_sessions, CliTool};
 
 #[derive(Parser)]
-#[command(name = "ai-sessions", about = "Browse and resume Claude Code and Codex CLI sessions")]
+#[command(
+    name = "ai-sessions",
+    about = "Browse and resume Claude Code and Codex CLI sessions"
+)]
 struct Cli {
     /// Project path (defaults to current directory)
     #[arg(short, long)]
@@ -83,10 +86,7 @@ fn main() -> Result<()> {
                 .arg("--resume")
                 .arg(&session_id)
                 .exec(),
-            CliTool::Codex => Command::new("codex")
-                .arg("resume")
-                .arg(&session_id)
-                .exec(),
+            CliTool::Codex => Command::new("codex").arg("resume").arg(&session_id).exec(),
         };
         let tool_name = match tool {
             CliTool::Claude => "claude",

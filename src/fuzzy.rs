@@ -9,7 +9,12 @@ pub fn fuzzy_filter(sessions: &[Session], query: &str) -> Vec<usize> {
     }
 
     let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
-    let pattern = Pattern::new(query, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy);
+    let pattern = Pattern::new(
+        query,
+        CaseMatching::Ignore,
+        Normalization::Smart,
+        AtomKind::Fuzzy,
+    );
 
     let mut scored: Vec<(usize, u32)> = Vec::new();
 
