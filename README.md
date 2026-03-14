@@ -7,10 +7,15 @@ A TUI tool to browse and resume your [Claude Code](https://docs.anthropic.com/en
 ## Features
 
 - Browse all Claude Code and Codex CLI sessions for a project
+- Recursive Claude session discovery across nested subfolders
 - Multi-tool support: sessions from both tools shown with `[Claude]` / `[Codex]` badges
 - Codex sessions filtered by project working directory when possible
 - Fuzzy search to filter sessions across all tools
-- Expand/collapse truncated messages with arrow keys
+- Attachment-aware rows (`+N att`) for image/file-heavy sessions
+- Folder-grouped list with collapsible folder/subfolder tree
+- Inline dashboard stats with tokens/cost totals, tool mix bars, and Top Folders
+- Skills screen with global/project discovery and filtering
+- Per-project skill enable/disable policy (`.opencode/skills-policy.json`)
 - Resume any session directly from the TUI
 
 ## Install
@@ -58,10 +63,18 @@ ai-sessions --path /path/to/project
 | Key | Action |
 |-----|--------|
 | `j` / `k` / `Up` / `Down` | Navigate sessions |
-| `Right` | Expand selected message |
-| `Left` | Collapse selected message |
+| `Left` / `Right` | Collapse / expand selected folder |
+| `[` / `]` | Collapse all / expand all folders |
+| `Tab` | Cycle screens: Sessions → Stats → Skills |
 | `Enter` | Resume selected session |
+| `a` | Toggle attachments-only filter |
 | `/` | Search |
+| `att` / `has:att` | Search syntax for attachments-only |
+| `g` / `p` / `a` (Skills screen) | Filter skills by global / project / all |
+| `r` (Skills screen) | Refresh skills from disk |
+| `Space` (Skills screen) | Toggle selected skill for current project |
+| `e` / `d` (Skills screen) | Enable / disable selected skill for project |
+| `E` / `D` (Skills screen) | Enable / disable all visible skills for project |
 | `Esc` | Exit search / Quit |
 | `q` | Quit |
 

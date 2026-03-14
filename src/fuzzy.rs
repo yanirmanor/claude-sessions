@@ -20,8 +20,9 @@ pub fn fuzzy_filter(sessions: &[Session], query: &str) -> Vec<usize> {
 
     for (i, session) in sessions.iter().enumerate() {
         let haystack = format!(
-            "{} {} {}",
+            "{} {} {} {}",
             session.first_user_message,
+            session.relative_folder.as_deref().unwrap_or(""),
             session.git_branch.as_deref().unwrap_or(""),
             session.id
         );

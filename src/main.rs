@@ -1,6 +1,7 @@
 mod app;
 mod fuzzy;
 mod session;
+mod skills;
 mod ui;
 
 use std::io;
