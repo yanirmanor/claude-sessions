@@ -11,7 +11,7 @@ use std::process::Command;
 
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{self, Event};
+use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -68,6 +68,9 @@ fn main() -> Result<()> {
         terminal.draw(|frame| ui::render(frame, &mut app))?;
 
         if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
             match app.handle_key(key) {
                 Action::Quit => break None,
                 Action::Resume(id, tool) => break Some((id, tool)),

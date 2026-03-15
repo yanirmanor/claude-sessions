@@ -214,13 +214,6 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
                 count,
                 attachment_count,
             } => {
-                let mut lines = Vec::new();
-                if list_idx > 0 {
-                    lines.push(Line::from(Span::styled(
-                        "  -----",
-                        Style::default().fg(SEPARATOR_COLOR),
-                    )));
-                }
                 let indent = "  ".repeat(*depth);
                 let marker = if app.collapsed_folders.contains(path) {
                     "+"
@@ -245,8 +238,16 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
                         Style::default().fg(ATTACHMENT_COLOR),
                     ));
                 }
-                lines.push(Line::from(spans));
-                ListItem::new(lines)
+                let folder_line = Line::from(spans);
+                let separator = if list_idx > 0 {
+                    Line::from(Span::styled(
+                        format!(" {}───", indent),
+                        Style::default().fg(SEPARATOR_COLOR),
+                    ))
+                } else {
+                    Line::from("")
+                };
+                ListItem::new(vec![folder_line, separator])
             }
             ViewRow::Session { session_idx, depth } => {
                 let session = &app.sessions[*session_idx];

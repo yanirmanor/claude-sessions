@@ -6,13 +6,17 @@ BIN = ai-sessions
 build:
 	cargo build --release
 
-install: build
-	cp target/release/$(BIN) $(PREFIX)/$(BIN)
-	@echo "Installed $(BIN) to $(PREFIX)/$(BIN)"
+install:
+	cargo install --path .
+	@echo "Installed $(BIN)"
 
 uninstall:
 	rm -f $(PREFIX)/$(BIN)
 	@echo "Removed $(BIN) from $(PREFIX)/$(BIN)"
+
+update:
+	git pull
+	$(MAKE) install
 
 clean:
 	cargo clean
