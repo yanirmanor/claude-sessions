@@ -10,39 +10,85 @@ use crate::app::{App, Mode, Screen, ViewRow};
 use crate::session::CliTool;
 use crate::skills::{SkillScope, SkillsFilter};
 
-const MUTED_BLUE_GRAY: Color = Color::Rgb(140, 140, 160);
-const DIM_GRAY: Color = Color::Rgb(90, 90, 100);
-const SOFT_WHITE: Color = Color::Rgb(200, 200, 210);
-const HIGHLIGHT_BG: Color = Color::Rgb(50, 50, 80);
-const MSG_COUNT_COLOR: Color = Color::Yellow;
+// --- Tab bar ---
+const TAB_ACTIVE_FG: Color = Color::Rgb(120, 200, 255);
+const TAB_INACTIVE_FG: Color = Color::Rgb(100, 100, 120);
+const TAB_SEPARATOR: Color = Color::Rgb(70, 70, 90);
+
+// --- Content text ---
+const TEXT_PRIMARY: Color = Color::Rgb(220, 220, 230);
+const TEXT_MUTED: Color = Color::Rgb(110, 110, 130);
+const TEXT_DIM: Color = Color::Rgb(70, 70, 85);
+const HIGHLIGHT_BG: Color = Color::Rgb(40, 45, 75);
+const HEADER_ROW_BG: Color = Color::Rgb(35, 35, 55);
+
+// --- Semantic ---
+const CLAUDE_COLOR: Color = Color::Rgb(200, 130, 255);
+const CODEX_COLOR: Color = Color::Rgb(100, 220, 130);
+const COST_COLOR: Color = Color::Rgb(255, 200, 80);
 const BRANCH_COLOR: Color = Color::Cyan;
 const FOLDER_COLOR: Color = Color::LightCyan;
 const ATTACHMENT_COLOR: Color = Color::Magenta;
-const SEPARATOR_COLOR: Color = Color::Rgb(60, 60, 70);
+const SEPARATOR_COLOR: Color = Color::Rgb(50, 50, 65);
+
+// --- Bars ---
+const BAR_INPUT: Color = Color::Rgb(80, 180, 255);
+const BAR_OUTPUT: Color = Color::Rgb(100, 220, 160);
+const BAR_BG: Color = Color::Rgb(40, 40, 55);
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
+
+    let show_col_headers =
+        app.screen == Screen::Sessions && !app.view_rows.is_empty();
+
     let chunks = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(5),
-        Constraint::Length(1),
+        Constraint::Length(1), // tab bar
+        Constraint::Length(1), // search / context line
+        Constraint::Length(if show_col_headers { 1 } else { 0 }), // column headers
+        Constraint::Min(5),   // main content
+        Constraint::Length(1), // footer
     ])
     .split(area);
 
     render_header(frame, app, chunks[0]);
     render_top_line(frame, app, chunks[1]);
 
-    match app.screen {
-        Screen::Sessions => render_sessions_screen(frame, app, chunks[2]),
-        Screen::Stats => render_stats_screen(frame, app, chunks[2]),
-        Screen::Skills => render_skills_screen(frame, app, chunks[2]),
+    if show_col_headers {
+        render_column_headers(frame, chunks[2]);
     }
 
-    render_footer(frame, app, chunks[3]);
+    match app.screen {
+        Screen::Sessions => render_sessions_screen(frame, app, chunks[3]),
+        Screen::Stats => render_stats_screen(frame, app, chunks[3]),
+        Screen::Skills => render_skills_screen(frame, app, chunks[3]),
+    }
+
+    render_footer(frame, app, chunks[4]);
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
+    let tabs = [
+        ("Sessions", Screen::Sessions),
+        ("Stats", Screen::Stats),
+        ("Skills", Screen::Skills),
+    ];
+
+    let mut left_spans: Vec<Span> = vec![Span::raw(" ")];
+    for (i, (label, screen)) in tabs.iter().enumerate() {
+        if i > 0 {
+            left_spans.push(Span::styled(" | ", Style::default().fg(TAB_SEPARATOR)));
+        }
+        let style = if app.screen == *screen {
+            Style::default()
+                .fg(TAB_ACTIVE_FG)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default().fg(TAB_INACTIVE_FG)
+        };
+        left_spans.push(Span::styled(*label, style));
+    }
+
     let session_count = app.filtered_indices.len();
     let total = app.sessions.len();
     let count_text = if session_count == total {
@@ -51,35 +97,33 @@ fn render_header(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         format!("({}/{})", session_count, total)
     };
 
-    let screen_tag = match app.screen {
-        Screen::Sessions => "[sessions]",
-        Screen::Stats => "[stats]",
-        Screen::Skills => "[skills]",
-    };
+    let project_name = app
+        .project_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&app.project_path);
 
-    let mut spans = vec![
-        Span::styled(
-            " AI Sessions",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" - {} ", app.project_path),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(count_text, Style::default().fg(Color::Yellow)),
-        Span::styled(format!(" {}", screen_tag), Style::default().fg(Color::Cyan)),
-    ];
+    let right_text = format!("{}  {} ", project_name, count_text);
+    let left_len: usize = left_spans.iter().map(|s| s.content.len()).sum();
+    let pad = (area.width as usize).saturating_sub(left_len + right_text.len());
+
+    left_spans.push(Span::raw(" ".repeat(pad)));
+    left_spans.push(Span::styled(
+        project_name.to_string(),
+        Style::default().fg(TEXT_MUTED),
+    ));
+    left_spans.push(Span::raw("  "));
+    left_spans.push(Span::styled(count_text, Style::default().fg(COST_COLOR)));
+    left_spans.push(Span::raw(" "));
 
     if app.screen == Screen::Sessions && app.attachments_only {
-        spans.push(Span::styled(
-            " [att]",
+        left_spans.push(Span::styled(
+            "[att]",
             Style::default().fg(ATTACHMENT_COLOR),
         ));
     }
 
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    frame.render_widget(Paragraph::new(Line::from(left_spans)), area);
 }
 
 fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
@@ -88,10 +132,13 @@ fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             if app.view_rows.is_empty() {
                 frame.render_widget(
                     Paragraph::new(Line::from(vec![
-                        Span::styled(" No sessions visible. ", Style::default().fg(Color::Yellow)),
+                        Span::styled(
+                            " No sessions visible. ",
+                            Style::default().fg(COST_COLOR),
+                        ),
                         Span::styled(
                             "Try Esc to clear search or press 'a' to disable attachments filter.",
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(TEXT_DIM),
                         ),
                     ])),
                     area,
@@ -100,8 +147,8 @@ fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             }
 
             let search_style = match app.mode {
-                Mode::Search => Style::default().fg(Color::Yellow),
-                Mode::Normal => Style::default().fg(Color::DarkGray),
+                Mode::Search => Style::default().fg(COST_COLOR),
+                Mode::Normal => Style::default().fg(TEXT_DIM),
             };
             let cursor_char = match app.mode {
                 Mode::Search => "|",
@@ -109,11 +156,11 @@ fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             };
             let search = Paragraph::new(Line::from(vec![
                 Span::styled(" Search: ", search_style),
-                Span::styled(&app.search_query, Style::default().fg(Color::White)),
-                Span::styled(cursor_char, Style::default().fg(Color::Yellow)),
+                Span::styled(&app.search_query, Style::default().fg(TEXT_PRIMARY)),
+                Span::styled(cursor_char, Style::default().fg(COST_COLOR)),
                 Span::styled(
                     format!("  rows:{}", app.view_rows.len()),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(TEXT_MUTED),
                 ),
             ]));
             frame.render_widget(search, area);
@@ -122,7 +169,7 @@ fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             frame.render_widget(
                 Paragraph::new(Span::styled(
                     " Stats dashboard",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(TEXT_DIM),
                 )),
                 area,
             );
@@ -135,11 +182,11 @@ fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             };
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
-                    Span::styled(" Skills filter: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(filter_label, Style::default().fg(Color::Yellow)),
+                    Span::styled(" Skills filter: ", Style::default().fg(TEXT_DIM)),
+                    Span::styled(filter_label, Style::default().fg(COST_COLOR)),
                     Span::styled(
                         "  (space toggle, e/d one, E/D all, g/p/a filter, r refresh)",
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(TEXT_DIM),
                     ),
                 ])),
                 area,
@@ -148,12 +195,60 @@ fn render_top_line(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     }
 }
 
+fn render_column_headers(frame: &mut Frame, area: ratatui::layout::Rect) {
+    let w = area.width as usize;
+    let wide = w >= 100;
+    let mid = w >= 80;
+
+    let mut spans: Vec<Span> = vec![
+        Span::styled(format!("  {:<14}", "when"), Style::default().fg(TEXT_DIM)),
+        Span::styled(format!("{:<8}", "agent"), Style::default().fg(TEXT_DIM)),
+    ];
+    if mid {
+        spans.push(Span::styled(
+            format!("{:<16}", "branch"),
+            Style::default().fg(TEXT_DIM),
+        ));
+    }
+    spans.push(Span::styled(
+        format!("{:>5} ", "msgs"),
+        Style::default().fg(TEXT_DIM),
+    ));
+    if wide {
+        spans.push(Span::styled(
+            format!("{:<12}", "load"),
+            Style::default().fg(TEXT_DIM),
+        ));
+        spans.push(Span::styled(
+            format!("{:>7}", "in"),
+            Style::default().fg(TEXT_DIM),
+        ));
+        spans.push(Span::styled(
+            format!("{:>7}", "out"),
+            Style::default().fg(TEXT_DIM),
+        ));
+        spans.push(Span::styled(
+            format!("{:>7} ", "cost"),
+            Style::default().fg(TEXT_DIM),
+        ));
+    }
+    spans.push(Span::styled(
+        " message",
+        Style::default().fg(TEXT_DIM),
+    ));
+
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(HEADER_ROW_BG)),
+        area,
+    );
+}
+
 fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     if app.view_rows.is_empty() {
         let mut lines = vec![Line::from(vec![Span::styled(
             " No sessions to display",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(COST_COLOR)
                 .add_modifier(Modifier::BOLD),
         )])];
 
@@ -184,7 +279,10 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
             lines.push(Line::from(" none"));
         } else {
             for file in app.changed_files.iter().take(10) {
-                lines.push(Line::from(format!(" - {}", truncate_for_preview(file, 90))));
+                lines.push(Line::from(format!(
+                    " - {}",
+                    truncate_for_preview(file, 90)
+                )));
             }
             if app.changed_files.len() > 10 {
                 lines.push(Line::from(format!(
@@ -196,11 +294,17 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
         lines.push(Line::from(" Press Shift+R to refresh changed files."));
 
         frame.render_widget(
-            Paragraph::new(lines).block(Block::default().borders(Borders::TOP).title(" Sessions ")),
+            Paragraph::new(lines)
+                .block(Block::default().borders(Borders::TOP).title(" Sessions ")),
             area,
         );
         return;
     }
+
+    let w = area.width as usize;
+    let wide = w >= 100;
+    let mid = w >= 80;
+    let max_tokens = app.max_session_tokens;
 
     let items: Vec<ListItem> = app
         .view_rows
@@ -229,7 +333,7 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
                     ),
                     Span::styled(
                         format!("  {} sessions", count),
-                        Style::default().fg(MSG_COUNT_COLOR),
+                        Style::default().fg(COST_COLOR),
                     ),
                 ];
                 if *attachment_count > 0 {
@@ -247,113 +351,104 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
                 } else {
                     Line::from("")
                 };
-                ListItem::new(vec![folder_line, separator])
+                ListItem::new(vec![separator, folder_line])
             }
             ViewRow::Session { session_idx, depth } => {
                 let session = &app.sessions[*session_idx];
                 let date_str = format_timestamp(&session.timestamp);
                 let branch = session.git_branch.as_deref().unwrap_or("?");
-                let short_id = &session.id[..std::cmp::min(8, session.id.len())];
                 let is_empty = session.message_count == 0
                     && session.timestamp.is_none()
                     && session.git_branch.is_none();
 
                 let (tool_label, tool_color) = match session.tool {
-                    CliTool::Claude => ("[Claude]", Color::Magenta),
-                    CliTool::Codex => ("[Codex]", Color::Green),
+                    CliTool::Claude => ("Claude", CLAUDE_COLOR),
+                    CliTool::Codex => ("Codex", CODEX_COLOR),
                 };
 
                 let indent_prefix = "  ".repeat(*depth);
-
-                let line1 = if is_empty {
-                    let mut spans = vec![
-                        Span::styled(
-                            format!(" {}{} ", indent_prefix, tool_label),
-                            Style::default().fg(tool_color).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            format!("{}  ", date_str),
-                            Style::default().fg(DIM_GRAY).add_modifier(Modifier::ITALIC),
-                        ),
-                        Span::styled(
-                            format!("{}  ", branch),
-                            Style::default().fg(DIM_GRAY).add_modifier(Modifier::ITALIC),
-                        ),
-                        Span::styled(short_id.to_string(), Style::default().fg(DIM_GRAY)),
-                        Span::styled(
-                            format!("  {} msgs", session.message_count),
-                            Style::default().fg(DIM_GRAY),
-                        ),
-                    ];
-                    if session.attachment_count > 0 {
-                        spans.push(Span::styled(
-                            format!("  +{} att", session.attachment_count),
-                            Style::default().fg(DIM_GRAY),
-                        ));
-                    }
-                    Line::from(spans)
+                let dim = is_empty;
+                let date_color = if dim { TEXT_DIM } else { TEXT_MUTED };
+                let branch_color = if dim { TEXT_DIM } else { BRANCH_COLOR };
+                let msg_count_color = if dim { TEXT_DIM } else { TEXT_PRIMARY };
+                let tool_style = if dim {
+                    Style::default().fg(TEXT_DIM)
                 } else {
-                    let mut spans = vec![
-                        Span::styled(
-                            format!(" {}{} ", indent_prefix, tool_label),
-                            Style::default().fg(tool_color).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            format!("{}  ", date_str),
-                            Style::default().fg(MUTED_BLUE_GRAY),
-                        ),
-                        Span::styled(
-                            format!("{}  ", branch),
-                            Style::default()
-                                .fg(BRANCH_COLOR)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(short_id.to_string(), Style::default().fg(DIM_GRAY)),
-                        Span::styled(" · ", Style::default().fg(SEPARATOR_COLOR)),
-                        Span::styled(
-                            format!("{} msgs", session.message_count),
-                            Style::default().fg(MSG_COUNT_COLOR),
-                        ),
-                    ];
-                    if session.attachment_count > 0 {
-                        spans.push(Span::styled(" · ", Style::default().fg(SEPARATOR_COLOR)));
-                        spans.push(Span::styled(
-                            format!("+{} att", session.attachment_count),
-                            Style::default().fg(ATTACHMENT_COLOR),
-                        ));
-                    }
-                    Line::from(spans)
+                    Style::default()
+                        .fg(tool_color)
+                        .add_modifier(Modifier::BOLD)
                 };
 
-                let indent = format!("{}    ", indent_prefix);
-                let msg_style = if session.first_user_message == "(no message)" || is_empty {
-                    Style::default().fg(DIM_GRAY).add_modifier(Modifier::ITALIC)
-                } else {
-                    Style::default().fg(SOFT_WHITE)
-                };
+                let mut spans: Vec<Span> = vec![
+                    Span::styled(
+                        format!(" {}{:<14}", indent_prefix, date_str),
+                        Style::default().fg(date_color),
+                    ),
+                    Span::styled(format!("{:<8}", tool_label), tool_style),
+                ];
 
-                let available_width = area.width as usize;
-                let preview_width = available_width.saturating_sub(indent.len() + 4);
-                let preview_text = if preview_width > 0 {
-                    truncate_for_preview(&session.first_user_message, preview_width)
-                } else {
-                    session.first_user_message.clone()
-                };
-                let msg_lines: Vec<Line> = vec![Line::from(vec![Span::styled(
-                    format!("{}{}", indent, preview_text),
-                    msg_style,
-                )])];
+                if mid {
+                    let br = truncate_for_preview(branch, 14);
+                    spans.push(Span::styled(
+                        format!("{:<16}", br),
+                        Style::default()
+                            .fg(branch_color)
+                            .add_modifier(if dim {
+                                Modifier::empty()
+                            } else {
+                                Modifier::BOLD
+                            }),
+                    ));
+                }
 
-                let mut lines = Vec::new();
-                lines.push(line1);
-                lines.extend(msg_lines);
-                ListItem::new(lines)
+                spans.push(Span::styled(
+                    format!("{:>5} ", session.message_count),
+                    Style::default().fg(msg_count_color),
+                ));
+
+                if wide {
+                    let bar_spans =
+                        token_bar(session.input_tokens, session.output_tokens, max_tokens, 10);
+                    spans.extend(bar_spans);
+                    spans.push(Span::raw(" "));
+
+                    spans.push(Span::styled(
+                        format!("{:>7}", format_compact_u64(session.input_tokens)),
+                        Style::default().fg(BAR_INPUT),
+                    ));
+                    spans.push(Span::styled(
+                        format!("{:>7}", format_compact_u64(session.output_tokens)),
+                        Style::default().fg(BAR_OUTPUT),
+                    ));
+                    spans.push(Span::styled(
+                        format!("{:>7} ", format_cost(session.total_cost_usd)),
+                        Style::default().fg(COST_COLOR),
+                    ));
+                }
+
+                let used: usize = spans.iter().map(|s| s.content.len()).sum();
+                let remaining = w.saturating_sub(used + 1);
+                if remaining > 5 {
+                    let msg_style = if session.first_user_message == "(no message)" || dim {
+                        Style::default()
+                            .fg(TEXT_DIM)
+                            .add_modifier(Modifier::ITALIC)
+                    } else {
+                        Style::default().fg(TEXT_MUTED)
+                    };
+                    spans.push(Span::styled(
+                        format!(" {}", truncate_for_preview(&session.first_user_message, remaining)),
+                        msg_style,
+                    ));
+                }
+
+                ListItem::new(vec![Line::from(spans)])
             }
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::TOP))
+        .block(Block::default())
         .highlight_style(
             Style::default()
                 .bg(HIGHLIGHT_BG)
@@ -365,88 +460,149 @@ fn render_sessions_screen(frame: &mut Frame, app: &mut App, area: ratatui::layou
 
 fn render_stats_screen(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let stats = compute_dashboard_stats(app);
-    let mut stats_lines = vec![
+    let mut lines = vec![
         Line::from(vec![
-            Span::styled(" Today", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Today",
+                Style::default()
+                    .fg(TAB_ACTIVE_FG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  "),
             Span::styled(
                 format!("{} sessions", stats.today_sessions),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(COST_COLOR),
             ),
         ]),
-        Line::from(format!(" Messages {}", stats.today_messages)),
-        Line::from(format!(
-            " Tokens in {} out {}",
-            format_compact_u64(stats.today_input_tokens),
-            format_compact_u64(stats.today_output_tokens)
-        )),
-        Line::from(format!(
-            " Tools Claude {}  Codex {}",
-            stats.today_claude, stats.today_codex
-        )),
-        Line::from(format!(" Cost ${:.2}", stats.today_cost_usd)),
-        Line::from(format!(" Attachments {}", stats.today_attachments)),
+        Line::from(vec![
+            Span::styled(" Messages ", Style::default().fg(TEXT_DIM)),
+            Span::styled(
+                format!("{}", stats.today_messages),
+                Style::default().fg(TEXT_PRIMARY),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(" Tokens   ", Style::default().fg(TEXT_DIM)),
+            Span::styled("in ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(
+                format_compact_u64(stats.today_input_tokens),
+                Style::default().fg(BAR_INPUT),
+            ),
+            Span::styled("  out ", Style::default().fg(TEXT_MUTED)),
+            Span::styled(
+                format_compact_u64(stats.today_output_tokens),
+                Style::default().fg(BAR_OUTPUT),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(" Cost     ", Style::default().fg(TEXT_DIM)),
+            Span::styled(
+                format!("${:.2}", stats.today_cost_usd),
+                Style::default().fg(COST_COLOR),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(" Attach   ", Style::default().fg(TEXT_DIM)),
+            Span::styled(
+                format!("{}", stats.today_attachments),
+                Style::default().fg(TEXT_PRIMARY),
+            ),
+        ]),
         Line::from(""),
-        Line::from(vec![Span::styled(
-            " All Time",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(format!(
-            " Sessions {}  Messages {}",
-            stats.total_sessions, stats.total_messages
-        )),
-        Line::from(format!(
-            " Tokens in {} out {}",
-            format_compact_u64(stats.total_input_tokens),
-            format_compact_u64(stats.total_output_tokens)
-        )),
-        Line::from(format!(" Cost ${:.2}", stats.total_cost_usd)),
-        Line::from(format!(" Attachments {}", stats.total_attachments)),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            " Tool Mix (Today)",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(format!(
-            " Claude {} {}",
-            stats.today_claude,
-            mini_bar(stats.today_claude, stats.max_tool_count, 20)
-        )),
-        Line::from(format!(
-            " Codex  {} {}",
-            stats.today_codex,
-            mini_bar(stats.today_codex, stats.max_tool_count, 20)
-        )),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            " Top Folders (Today)",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
+        Line::from(vec![
+            Span::styled(" Tool Mix", Style::default().add_modifier(Modifier::BOLD)),
+        ]),
     ];
 
+    // Tool mix bars
+    let max_tool = stats.max_tool_count;
+    let mut claude_line: Vec<Span> = vec![
+        Span::styled(format!(" Claude {:>3} ", stats.today_claude), Style::default().fg(CLAUDE_COLOR)),
+    ];
+    claude_line.extend(styled_bar(stats.today_claude, max_tool, 20, CLAUDE_COLOR));
+    lines.push(Line::from(claude_line));
+
+    let mut codex_line: Vec<Span> = vec![
+        Span::styled(format!(" Codex  {:>3} ", stats.today_codex), Style::default().fg(CODEX_COLOR)),
+    ];
+    codex_line.extend(styled_bar(stats.today_codex, max_tool, 20, CODEX_COLOR));
+    lines.push(Line::from(codex_line));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        " All Time",
+        Style::default()
+            .fg(TAB_ACTIVE_FG)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(vec![
+        Span::styled(" Sessions ", Style::default().fg(TEXT_DIM)),
+        Span::styled(
+            format!("{}", stats.total_sessions),
+            Style::default().fg(TEXT_PRIMARY),
+        ),
+        Span::styled("  Messages ", Style::default().fg(TEXT_DIM)),
+        Span::styled(
+            format!("{}", stats.total_messages),
+            Style::default().fg(TEXT_PRIMARY),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Tokens   ", Style::default().fg(TEXT_DIM)),
+        Span::styled("in ", Style::default().fg(TEXT_MUTED)),
+        Span::styled(
+            format_compact_u64(stats.total_input_tokens),
+            Style::default().fg(BAR_INPUT),
+        ),
+        Span::styled("  out ", Style::default().fg(TEXT_MUTED)),
+        Span::styled(
+            format_compact_u64(stats.total_output_tokens),
+            Style::default().fg(BAR_OUTPUT),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Cost     ", Style::default().fg(TEXT_DIM)),
+        Span::styled(
+            format!("${:.2}", stats.total_cost_usd),
+            Style::default().fg(COST_COLOR),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(" Attach   ", Style::default().fg(TEXT_DIM)),
+        Span::styled(
+            format!("{}", stats.total_attachments),
+            Style::default().fg(TEXT_PRIMARY),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        " Top Folders (Today)",
+        Style::default().add_modifier(Modifier::BOLD),
+    )]));
+
     if stats.top_folders.is_empty() {
-        stats_lines.push(Line::from(" none"));
+        lines.push(Line::from(Span::styled(
+            " none",
+            Style::default().fg(TEXT_DIM),
+        )));
     } else {
-        for (folder, count) in stats.top_folders {
-            stats_lines.push(Line::from(vec![
+        for (folder, count) in &stats.top_folders {
+            let mut row: Vec<Span> = vec![
                 Span::styled(" ", Style::default()),
                 Span::styled(
-                    truncate_for_preview(&folder, 32),
+                    format!("{:<32}", truncate_for_preview(folder, 30)),
                     Style::default().fg(FOLDER_COLOR),
                 ),
-                Span::raw(" "),
-                Span::styled(format!("{}", count), Style::default().fg(Color::White)),
-                Span::raw(" "),
-                Span::styled(
-                    mini_bar(count, stats.max_folder_count, 16),
-                    Style::default().fg(Color::Cyan),
-                ),
-            ]));
+                Span::styled(format!("{:>3} ", count), Style::default().fg(TEXT_PRIMARY)),
+            ];
+            row.extend(styled_bar(*count, stats.max_folder_count, 16, FOLDER_COLOR));
+            lines.push(Line::from(row));
         }
     }
 
     frame.render_widget(
-        Paragraph::new(stats_lines).block(Block::default().borders(Borders::TOP).title(" Stats ")),
+        Paragraph::new(lines).block(Block::default().borders(Borders::TOP).title(" Stats ")),
         area,
     );
 }
@@ -469,8 +625,8 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
                 SkillScope::Project => "[P]",
             };
             let scope_color = match skill.scope {
-                SkillScope::Global => Color::Green,
-                SkillScope::Project => Color::Cyan,
+                SkillScope::Global => CODEX_COLOR,
+                SkillScope::Project => BRANCH_COLOR,
             };
             let status = if skill.has_skill_md {
                 "ok"
@@ -478,7 +634,7 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
                 "missing SKILL.md"
             };
             let enabled_text = if enabled { "ON" } else { "OFF" };
-            let enabled_color = if enabled { Color::Green } else { Color::Red };
+            let enabled_color = if enabled { CODEX_COLOR } else { Color::Red };
             ListItem::new(vec![Line::from(vec![
                 Span::styled(
                     format!(" {} ", scope_badge),
@@ -488,7 +644,9 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
                 ),
                 Span::styled(
                     skill.name.clone(),
-                    Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(TEXT_PRIMARY)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("  {}", enabled_text),
@@ -496,7 +654,7 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
                         .fg(enabled_color)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(format!("  {}", status), Style::default().fg(DIM_GRAY)),
+                Span::styled(format!("  {}", status), Style::default().fg(TEXT_DIM)),
             ])])
         })
         .collect();
@@ -522,29 +680,29 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
         };
         vec![
             Line::from(vec![
-                Span::styled(" Name: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&skill.name, Style::default().fg(Color::White)),
+                Span::styled(" Name: ", Style::default().fg(TEXT_DIM)),
+                Span::styled(&skill.name, Style::default().fg(TEXT_PRIMARY)),
             ]),
             Line::from(vec![
-                Span::styled(" Scope: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(scope, Style::default().fg(Color::Yellow)),
+                Span::styled(" Scope: ", Style::default().fg(TEXT_DIM)),
+                Span::styled(scope, Style::default().fg(COST_COLOR)),
             ]),
             Line::from(vec![
-                Span::styled(" Path: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(" Path: ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
                     skill.path.to_string_lossy().to_string(),
-                    Style::default().fg(SOFT_WHITE),
+                    Style::default().fg(TEXT_PRIMARY),
                 ),
             ]),
             Line::from(vec![
-                Span::styled(" Root: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(" Root: ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
                     skill.source_root.to_string_lossy().to_string(),
-                    Style::default().fg(SOFT_WHITE),
+                    Style::default().fg(TEXT_PRIMARY),
                 ),
             ]),
             Line::from(vec![
-                Span::styled(" Status: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(" Status: ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
                     if skill.has_skill_md {
                         "Ready"
@@ -552,22 +710,25 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
                         "Missing SKILL.md"
                     },
                     Style::default().fg(if skill.has_skill_md {
-                        Color::Green
+                        CODEX_COLOR
                     } else {
                         Color::Red
                     }),
                 ),
             ]),
             Line::from(vec![
-                Span::styled(" Use in project: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(" Use in project: ", Style::default().fg(TEXT_DIM)),
                 Span::styled(
                     if enabled { "Enabled" } else { "Disabled" },
-                    Style::default().fg(if enabled { Color::Green } else { Color::Red }),
+                    Style::default().fg(if enabled { CODEX_COLOR } else { Color::Red }),
                 ),
             ]),
         ]
     } else {
-        vec![Line::from(" No skills found for this filter")]
+        vec![Line::from(Span::styled(
+            " No skills found for this filter",
+            Style::default().fg(TEXT_DIM),
+        ))]
     };
 
     frame.render_widget(
@@ -578,31 +739,137 @@ fn render_skills_screen(frame: &mut Frame, app: &mut App, area: ratatui::layout:
 }
 
 fn render_footer(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let footer_text = match app.screen {
+    let bindings: Vec<(&str, &str)> = match app.screen {
         Screen::Sessions => match app.mode {
             Mode::Normal => {
                 if app.view_rows.is_empty() {
-                    " No rows  Esc clear search  a toggle attachments  Shift+R refresh files  Tab next screen  q Quit"
+                    vec![
+                        ("Esc", "clear"),
+                        ("a", "attachments"),
+                        ("R", "refresh"),
+                        ("Tab", "next"),
+                        ("q", "quit"),
+                    ]
                 } else {
-                    " Up/Down or j/k Navigate  Left/Right Fold folder  [ Collapse all  ] Expand all  a Attachments  / Search  Enter Resume  Shift+R Refresh files  Tab Next screen  q Quit"
+                    vec![
+                        ("j/k", "navigate"),
+                        ("</>", "fold"),
+                        ("[/]", "all"),
+                        ("a", "attachments"),
+                        ("/", "search"),
+                        ("Enter", "resume"),
+                        ("R", "refresh"),
+                        ("Tab", "next"),
+                        ("q", "quit"),
+                    ]
                 }
             }
-            Mode::Search => {
-                " Up/Down Navigate  Enter Resume  Esc Clear search  Type to filter (att, has:att)  Tab Next screen"
-            }
+            Mode::Search => vec![
+                ("Up/Dn", "navigate"),
+                ("Enter", "resume"),
+                ("Esc", "clear"),
+                ("Tab", "next"),
+            ],
         },
-        Screen::Stats => " Tab Next screen  q Quit",
-        Screen::Skills => {
-            " Up/Down Navigate  Space Toggle  e/d One  E/D All  g/p/a Filter  r Refresh  Tab Next screen  q Quit"
-        }
+        Screen::Stats => vec![("Tab", "next"), ("q", "quit")],
+        Screen::Skills => vec![
+            ("j/k", "navigate"),
+            ("Space", "toggle"),
+            ("e/d", "one"),
+            ("E/D", "all"),
+            ("g/p/a", "filter"),
+            ("r", "refresh"),
+            ("Tab", "next"),
+            ("q", "quit"),
+        ],
     };
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            footer_text,
-            Style::default().fg(Color::DarkGray),
-        )),
-        area,
-    );
+
+    let mut spans: Vec<Span> = vec![Span::raw(" ")];
+    for (i, (key, action)) in bindings.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ", Style::default()));
+        }
+        spans.push(Span::styled(
+            *key,
+            Style::default()
+                .fg(TEXT_PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            format!(" {}", action),
+            Style::default().fg(TEXT_DIM),
+        ));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+// --- Helpers ---
+
+fn token_bar<'a>(input: u64, output: u64, max_total: u64, width: usize) -> Vec<Span<'a>> {
+    let total = input.saturating_add(output);
+    if total == 0 || max_total == 0 {
+        return vec![Span::styled(
+            "\u{2591}".repeat(width),
+            Style::default().fg(BAR_BG),
+        )];
+    }
+    let safe_max = max_total.max(1);
+    let filled = ((total as f64 / safe_max as f64) * width as f64).round() as usize;
+    let filled = filled.min(width);
+    let input_cells = if total > 0 {
+        ((input as f64 / total as f64) * filled as f64).round() as usize
+    } else {
+        0
+    };
+    let input_cells = input_cells.min(filled);
+    let output_cells = filled.saturating_sub(input_cells);
+    let empty = width.saturating_sub(filled);
+
+    let mut spans = Vec::new();
+    if input_cells > 0 {
+        spans.push(Span::styled(
+            "\u{2588}".repeat(input_cells),
+            Style::default().fg(BAR_INPUT),
+        ));
+    }
+    if output_cells > 0 {
+        spans.push(Span::styled(
+            "\u{2588}".repeat(output_cells),
+            Style::default().fg(BAR_OUTPUT),
+        ));
+    }
+    if empty > 0 {
+        spans.push(Span::styled(
+            "\u{2591}".repeat(empty),
+            Style::default().fg(BAR_BG),
+        ));
+    }
+    spans
+}
+
+fn styled_bar<'a>(value: usize, max: usize, width: usize, fg: Color) -> Vec<Span<'a>> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let safe_max = max.max(1);
+    let filled = (value * width) / safe_max;
+    let filled = filled.min(width);
+    let empty = width.saturating_sub(filled);
+    let mut spans = Vec::new();
+    if filled > 0 {
+        spans.push(Span::styled(
+            "\u{2588}".repeat(filled),
+            Style::default().fg(fg),
+        ));
+    }
+    if empty > 0 {
+        spans.push(Span::styled(
+            "\u{2591}".repeat(empty),
+            Style::default().fg(BAR_BG),
+        ));
+    }
+    spans
 }
 
 fn truncate_for_preview(text: &str, max_chars: usize) -> String {
@@ -622,21 +889,24 @@ fn format_timestamp(ts: &Option<String>) -> String {
         Some(ts_str) => {
             if let Ok(dt) = ts_str.parse::<DateTime<Utc>>() {
                 let local_dt = dt.with_timezone(&Local);
-                let today = Local::now().date_naive();
-                let yesterday = today - chrono::Duration::days(1);
-                let session_date = local_dt.date_naive();
-                if session_date == today {
-                    format!("Today {}", local_dt.format("%H:%M"))
-                } else if session_date == yesterday {
-                    format!("Yesterday {}", local_dt.format("%H:%M"))
-                } else {
-                    local_dt.format("%b %-d, %Y %H:%M").to_string()
-                }
+                local_dt.format("%m/%d %H:%M").to_string()
             } else {
-                ts_str.clone()
+                "  --  --:--".to_string()
             }
         }
-        None => "Unknown date".to_string(),
+        None => "  --  --:--".to_string(),
+    }
+}
+
+fn format_cost(cost: f64) -> String {
+    if cost >= 10.0 {
+        format!("${:.1}", cost)
+    } else if cost >= 0.01 {
+        format!("${:.2}", cost)
+    } else if cost > 0.0 {
+        "$<.01".to_string()
+    } else {
+        "$0".to_string()
     }
 }
 
@@ -744,21 +1014,4 @@ fn format_compact_u64(value: u64) -> String {
     } else {
         value.to_string()
     }
-}
-
-fn mini_bar(value: usize, max: usize, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    let safe_max = max.max(1);
-    let filled = (value * width) / safe_max;
-    let mut out = String::with_capacity(width);
-    for i in 0..width {
-        if i < filled {
-            out.push('#');
-        } else {
-            out.push('-');
-        }
-    }
-    out
 }

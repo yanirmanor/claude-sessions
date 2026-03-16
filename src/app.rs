@@ -61,6 +61,7 @@ pub struct App {
     pub skills_filtered_indices: Vec<usize>,
     pub skills_list_state: ListState,
     pub changed_files: Vec<String>,
+    pub max_session_tokens: u64,
 }
 
 impl App {
@@ -85,6 +86,7 @@ impl App {
             skills_filtered_indices: Vec::new(),
             skills_list_state: ListState::default(),
             changed_files: Vec::new(),
+            max_session_tokens: 0,
         };
         app.refresh_changed_files();
         app.rebuild_view_rows();
@@ -603,6 +605,17 @@ impl App {
                 emit_folder(self, &folder, 0, &children, &leaf_groups);
             }
         }
+
+        self.max_session_tokens = self
+            .filtered_indices
+            .iter()
+            .map(|&idx| {
+                self.sessions[idx]
+                    .input_tokens
+                    .saturating_add(self.sessions[idx].output_tokens)
+            })
+            .max()
+            .unwrap_or(0);
 
         if self.view_rows.is_empty() {
             self.list_state.select(None);
